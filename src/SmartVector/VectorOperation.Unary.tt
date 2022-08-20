@@ -1,0 +1,110 @@
+﻿<#@ template debug="false" hostspecific="false" language="C#" #>
+<#@ assembly name="System.Core" #>
+<#@ import namespace="System.Linq" #>
+<#@ import namespace="System.Text" #>
+<#@ import namespace="System.Collections.Generic" #>
+<#@ output extension=".g.cs" #>
+<#
+var operations = new OpDef[]
+{
+    new OpDef("UnaryPlus" , new string[]{ "sbyte", "short", "int", "long", "byte", "ushort", "uint", "ulong", "float", "double", }),
+    new OpDef("UnaryMinus", new string[]{ "sbyte", "short", "int", "long", "byte", "ushort", "uint", "ulong", "float", "double", }),
+};
+#>
+#nullable enable
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+
+namespace SmartVector
+{
+<# foreach(var op in operations) { #>
+    #region <#=op.Name.ToLower()#>
+    partial class VectorOperation
+    {
+        /// <summary>
+        /// Operates <#=op.Name.ToLower()#> for each corresponding elements of <paramref name="x"/>.
+        /// </summary>
+        /// <typeparam name="T"> The type of elements. </typeparam>
+        /// <param name="x"> The operand elements. </param>
+        /// <param name="ans"> The destination of answer. </param>
+        /// <exception cref="ArgumentException">
+        /// <paramref name="x"/> and <paramref name="ans"/> must have same length.
+        /// </exception>
+        /// <exception cref="NotSupportedException">
+        /// The operation for <typeparamref name="T"/> is not supported.
+        /// </exception>
+        public void <#=op.Name#><T>(ReadOnlySpan<T> x, Span<T> ans)
+            where T : unmanaged
+        {
+            if(x.Length != ans.Length)
+                throw new ArgumentException("`x` and `ans` must have same length.");
+            <#=op.Name#>Core(x, ans);
+        }
+
+        /// <summary>
+        /// When overridden in a derived class, operates <#=op.Name.ToLower()#> for each corresponding elements of <paramref name="x"/>.
+        /// Implementation can assume that <paramref name="x"/> and <paramref name="ans"/> have strictly same length.
+        /// </summary>
+        /// <typeparam name="T"> The type of elements. </typeparam>
+        /// <param name="x"> The operand elements. </param>
+        /// <param name="ans"> The destination of answer. </param>
+        /// <exception cref="NotSupportedException">
+        /// The operation for <typeparamref name="T"/> is not supported.
+        /// </exception>
+        protected internal virtual void <#=op.Name#>Core<T>(ReadOnlySpan<T> x, Span<T> ans)
+            where T : unmanaged
+            => Fallback.<#=op.Name#>Core(x, ans);
+    }
+
+
+    partial class VectorOperationSpecialized
+    {
+        /// <inheritdoc />
+        protected internal override sealed void <#=op.Name#>Core<T>(ReadOnlySpan<T> x, Span<T> ans)
+        {
+<#   foreach(var type in op.SupportedTypes) { #>
+            if(typeof(T) == typeof(<#=type#>))
+            {
+                var x_ = MemoryMarshal.Cast<T, <#=type#>>(x);
+                var ans_ = MemoryMarshal.Cast<T, <#=type#>>(ans);
+                <#=op.Name#>Core(x_, ans_);
+                return;
+            }
+<#   } #>
+            Fallback.<#=op.Name#>Core(x, ans);
+        }
+
+<#   foreach(var type in op.SupportedTypes) { #>
+        /// <summary>
+        /// When overridden in a derived class, operates <#=op.Name.ToLower()#> for each corresponding elements of <paramref name="x"/>.
+        /// Implementation can assume that <paramref name="x"/> and <paramref name="ans"/> have strictly same length.
+        /// </summary>
+        /// <param name="x"> The operand elements. </param>
+        /// <param name="ans"> The destination of answer. </param>
+        /// <exception cref="NotSupportedException">
+        /// The operation is not supported.
+        /// </exception>
+        protected virtual void <#=op.Name#>Core(ReadOnlySpan<<#=type#>> x, Span<<#=type#>> ans)
+            => Fallback.<#=op.Name#>Core(x, ans);
+
+<#   } #>
+    }
+    #endregion
+
+
+<# } #>
+}
+<#+
+class OpDef
+{
+    public string Name { get; }
+    public IEnumerable<string> SupportedTypes { get; }
+
+    public OpDef(string name, string[] supportedTypes)
+    {
+        Name = name;
+        SupportedTypes = supportedTypes;
+    }
+}
+#>
